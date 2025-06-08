@@ -15,4 +15,20 @@ A simple network traffic analyzer that detects suspicious activities such as ICM
 - Includes a test `.pcap` file generator
 
 ## 🗂️ Project Structure
+📁 Network_Suspicious_edit2/
+├── Network_Suspicious.py # Main detection script
+├── sample_gen.py # PCAP sample generator
+├── requirements.txt # Required Python libraries
+├── How to use.txt # Local usage instructions (Thai)
+├── sample/
+│ └── attack_test.pcap # Sample test PCAP file
+└── result/
+├── detection_result.txt # Text log output
+└── icmp_flood_chart.png # Visualization graph
 
+## ⚙️ Installation
+
+> Requires **Python 3.12**. It’s recommended to use a virtual environment.
+
+```bash
+pip install -r requirements.txt
