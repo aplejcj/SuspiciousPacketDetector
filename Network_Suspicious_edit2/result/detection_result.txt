@@ -1,0 +1,61 @@
+
+=== ARP Spoofing ===
+ระดับความอันตราย: สูง
+แนวทางป้องกันเบื้องต้น: ตรวจสอบและ alert MAC-IP mapping ที่เปลี่ยนแปลงผิดปกติ
+[!] IP 192.168.1.1 maps to multiple MACs:
+    - MAC: aa:bb:cc:dd:ee:01 at 2025-06-06 22:08:05
+    - MAC: 11:22:33:44:55:04 at 2025-06-06 22:08:09
+    - MAC: aa:bb:cc:dd:ee:05 at 2025-06-06 22:08:09
+    - MAC: 11:22:33:44:55:00 at 2025-06-06 22:08:05
+    - MAC: aa:bb:cc:dd:ee:04 at 2025-06-06 22:08:08
+    - MAC: aa:bb:cc:dd:ee:02 at 2025-06-06 22:08:06
+    - MAC: aa:bb:cc:dd:ee:03 at 2025-06-06 22:08:07
+    - MAC: 11:22:33:44:55:03 at 2025-06-06 22:08:08
+    - MAC: aa:bb:cc:dd:ee:00 at 2025-06-06 22:08:04
+    - MAC: 11:22:33:44:55:02 at 2025-06-06 22:08:07
+    - MAC: 11:22:33:44:55:01 at 2025-06-06 22:08:06
+    - MAC: 11:22:33:44:55:05 at 2025-06-06 22:08:10
+
+=== DNS Spoofing ===
+ระดับความอันตราย: ปานกลาง
+แนวทางป้องกันเบื้องต้น: หลีกเลี่ยงการใช้ DNS ที่ไม่น่าเชื่อถือ หรือใช้ DNS resolver ที่ควบคุมได้
+[!] DNS mismatch for example.com.:
+    - Response: 1.2.3.1 at 2025-06-06 22:08:14
+    - Response: 6.6.6.1 at 2025-06-06 22:08:15
+    - Response: 1.2.3.2 at 2025-06-06 22:08:15
+    - Response: 6.6.6.2 at 2025-06-06 22:08:16
+    - Response: 1.2.3.3 at 2025-06-06 22:08:16
+    - Response: 6.6.6.3 at 2025-06-06 22:08:17
+    - Response: 1.2.3.4 at 2025-06-06 22:08:17
+    - Response: 6.6.6.4 at 2025-06-06 22:08:18
+    - Response: 1.2.3.5 at 2025-06-06 22:08:18
+    - Response: 6.6.6.5 at 2025-06-06 22:08:19
+    - Response: 1.2.3.6 at 2025-06-06 22:08:19
+    - Response: 6.6.6.6 at 2025-06-06 22:08:20
+
+=== DHCP Spoofing ===
+ระดับความอันตราย: สูง
+แนวทางป้องกันเบื้องต้น: จำกัด DHCP responses จาก MAC ที่ไม่รู้จัก
+[!] Multiple DHCP servers detected:
+    - Server: 192.168.1.1 at 2025-06-06 22:08:24
+    - Server: 192.168.1.1 at 2025-06-06 22:08:25
+    - Server: 192.168.1.1 at 2025-06-06 22:08:26
+    - Server: 192.168.1.200 at 2025-06-06 22:08:25
+    - Server: 192.168.1.200 at 2025-06-06 22:08:26
+    - Server: 192.168.1.200 at 2025-06-06 22:08:27
+
+=== ICMP Flood ===
+ระดับความอันตราย: ปานกลาง
+แนวทางป้องกันเบื้องต้น: ใช้ rate limiting บน firewall หรือ router
+
+=== SYN Flood ===
+ระดับความอันตราย: สูง
+แนวทางป้องกันเบื้องต้น: ใช้ SYN cookies, จำกัด connection rate
+[!] Possible SYN flood from 10.0.0.99: 450 SYN packets without ACK
+
+=== TCP Scan Detection ===
+ระดับความอันตราย: ปานกลางถึงสูง (ขึ้นกับลักษณะ scan)
+แนวทางป้องกันเบื้องต้น: บล็อก IP ที่ scan พอร์ต, ใช้ IDS เช่น Snort/Suricata
+[!] Detected NULL scan: 30 packets
+[!] Detected FIN scan: 30 packets
+[!] Detected XMAS scan: 30 packets

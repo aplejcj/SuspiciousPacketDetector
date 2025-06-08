@@ -1,0 +1,20 @@
+วิธีการติดตั้ง dependencies จาก requirements.txt
+	-บนเครื่องใหม่ หรือใน environment ใหม่ ใช้คำสั่ง pip install -r requirements.txt
+     คำแนะนำ
+	-ใช้ virtualenv หรือ conda เพื่อแยก environment ของแต่ละโปรเจกต์
+	-ใช้ Python 3.12
+
+วิธีการใช้งาน
+-code จะเเบ่งออกเป็น 2 file ได้แก่ Network_Suspicious.py และ sample_gen.py
+	
+	sample_gen.py ใช้สำหรับสร้างไฟล์ pcap สำหรับทดสอบ
+		1.รันคำสั่ง python sample_gen.py 
+		2.code จะทำการสร้างไฟล์ pcap สำหรับทดสอบ ที่มีการโจมตีครบทุกรูปเเบบ เอาไว้ใน folder sample ชื่อว่า attack_test.pcap
+
+	Network_Suspicious.py ใช้สำหรับดักจับการโจมตีข้อมูลบนไฟล์ pcap 	
+		1.รันคำสั่ง python Network_Suspicious.py
+		2.หลังจากรันเเล้ว จะเเสดงผลลัพท์ ในรูปแบบของ กราฟ เเละ log บน terminal
+		3.เมื่อปิดโปรแกรม โดยกด กากบาท บนหน้าต่าง ICMP โปรแกรมจะทำการ save detection_result.txt เเละ กราฟ icmp_flood_chart.png ลงใน folder result
+	
+หมายเหตุ 
+-หากต้องการ เปลี่ยนไฟล์ pcap เป็น file ที่ต้องการสามารถ เปลี่ยนชื่อเป็น attack_test.pcap เเละ เเทนที่ ใน folder sample โดยไม่ต้องรัน sample_gen.py ได้เลยครับ 
