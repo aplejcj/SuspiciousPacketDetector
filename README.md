@@ -1,4 +1,4 @@
-# SuspiciousPacketDetector
+# SuspiciousPacketDetector For-EDU
 # NetDetect
 
 A simple network traffic analyzer that detects suspicious activities such as ICMP Flood, ARP Spoofing, DNS Spoofing, and DHCP Spoofing from `.pcap` files. The tool visualizes packet data and logs detection results automatically.
