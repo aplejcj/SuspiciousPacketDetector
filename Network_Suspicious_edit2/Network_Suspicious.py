@@ -1,179 +1,177 @@
-from scapy.all import *
-import pandas as pd
-import matplotlib.pyplot as plt
-from collections import defaultdict, Counter
-from datetime import datetime
+# Network_Suspicious.py (Final Professional Version)
 import os
+import time
+import json
+import configparser
+import argparse
+from collections import defaultdict, Counter
+import numpy as np
+from scapy.all import *
 
-def detect_and_plot(pcap_file):
-    packets = rdpcap(pcap_file)
+class SuspiciousPacketDetector:
+    """
+    คลาสสำหรับวิเคราะห์และตรวจจับกิจกรรมที่น่าสงสัยในเครือข่าย
+    โดยใช้การเรียนรู้ค่าพื้นฐาน (Baseline) และการวิเคราะห์เชิงสถิติ
+    """
+    def __init__(self, config_path='config.ini'):
+        self.config = configparser.ConfigParser()
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"ไม่พบไฟล์ config: '{config_path}'")
+        self.config.read(config_path)
+        
+        self.baseline_file = self.config.get('Paths', 'baseline_file', fallback='result/network_baseline.json')
+        self.sensitivity = self.config.getfloat('DetectionParameters', 'sensitivity', fallback=3.0)
 
-    ip_mac_map = defaultdict(set)
-    mac_ip_map = defaultdict(set)
-    dns_responses = defaultdict(lambda: defaultdict(set))
-    dhcp_servers = defaultdict(list)
-    icmp_counter = Counter()
+    def _analyze_packets_for_stats(self, packets):
+        """(Private) วิเคราะห์ packet เพื่อสรุปสถิติพื้นฐานต่อช่วงเวลา"""
+        if not packets:
+            return {}
+        
+        events_per_interval = defaultdict(Counter)
+        first_ts = packets[0].time
+        interval_seconds = 10
 
-    syn_counter = Counter()
-    syn_ack_tracker = set()
-    scan_flags_counter = Counter()
+        for pkt in packets:
+            interval_index = int((pkt.time - first_ts) / interval_seconds)
+            
+            if pkt.haslayer(ARP) and pkt[ARP].op == 2:
+                events_per_interval[interval_index]['arp_reply_count'] += 1
+            if pkt.haslayer(TCP) and pkt[TCP].flags == 'S':
+                events_per_interval[interval_index]['syn_count'] += 1
+            if pkt.haslayer(ICMP) and pkt[ICMP].type == 8:
+                events_per_interval[interval_index]['icmp_echo_count'] += 1
+        
+        return events_per_interval
 
-    log_lines = []
+    def learn(self, pcap_path):
+        """
+        โหมดเรียนรู้: สร้างไฟล์ Baseline จากทราฟฟิกปกติ
+        """
+        print(f"--- Running in LEARN mode from '{pcap_path}' ---")
+        try:
+            packets = rdpcap(pcap_path)
+        except Scapy_Exception as e:
+            print(f"[Error] ไม่สามารถอ่านไฟล์ pcap ได้: {e}")
+            return
 
-    for pkt in packets:
-        pkt_time = datetime.fromtimestamp(float(pkt.time)).strftime("%Y-%m-%d %H:%M:%S")
+        events_per_interval = self._analyze_packets_for_stats(packets)
+        
+        # รวบรวมค่าเพื่อคำนวณสถิติ
+        stats = defaultdict(list)
+        for interval in events_per_interval.values():
+            stats['arp_reply_count'].append(interval['arp_reply_count'])
+            stats['syn_count'].append(interval['syn_count'])
+            stats['icmp_echo_count'].append(interval['icmp_echo_count'])
 
-        # === ARP Spoofing ===
-        if pkt.haslayer(ARP) and pkt[ARP].op == 2:
-            ip = pkt[ARP].psrc
-            mac = pkt[ARP].hwsrc
-            ip_mac_map[ip].add((mac, pkt_time))
-            mac_ip_map[mac].add((ip, pkt_time))
+        baseline = {}
+        for key, values in stats.items():
+            baseline[f"{key}_mean"] = np.mean(values) if values else 0
+            baseline[f"{key}_std"] = np.std(values) if values else 0
 
-        # === DNS Spoofing ===
-        if pkt.haslayer(DNS) and pkt[DNS].qr == 1:
-            if pkt.haslayer(DNSQR):
-                qname = pkt[DNSQR].qname.decode()
-                answer = pkt[DNS].an.rdata
-                dns_responses[qname][answer].add(pkt_time)
+        # สร้างโฟลเดอร์ result หากยังไม่มี
+        os.makedirs(os.path.dirname(self.baseline_file), exist_ok=True)
+        with open(self.baseline_file, 'w') as f:
+            json.dump(baseline, f, indent=4)
+            
+        print(f"✅ Baseline created successfully: '{self.baseline_file}'")
+        print(json.dumps(baseline, indent=2))
 
-        # === DHCP Spoofing ===
-        if pkt.haslayer(DHCP):
-            for opt in pkt[DHCP].options:
-                if opt[0] == 'server_id':
-                    dhcp_servers[opt[1]].append(pkt_time)
+    def detect(self, pcap_path):
+        """
+        โหมดตรวจจับ: วิเคราะห์ไฟล์ pcap และหาความผิดปกติเทียบกับ Baseline
+        """
+        print(f"--- Running in DETECT mode on '{pcap_path}' ---")
+        if not os.path.exists(self.baseline_file):
+            raise FileNotFoundError(f"ไม่พบไฟล์ Baseline '{self.baseline_file}'. กรุณารันโหมด learn ก่อน")
+            
+        with open(self.baseline_file, 'r') as f:
+            baseline = json.load(f)
 
-        # === ICMP Flood ===
-        if pkt.haslayer(ICMP) and pkt[ICMP].type == 8 and pkt.haslayer(IP):
-            src = pkt[IP].src
-            icmp_counter[src] += 1
+        try:
+            packets = rdpcap(pcap_path)
+        except Scapy_Exception as e:
+            print(f"[Error] ไม่สามารถอ่านไฟล์ pcap ได้: {e}")
+            return
 
-        # === SYN Flood / TCP Scan ===
-        if pkt.haslayer(TCP) and pkt.haslayer(IP):
-            flags = pkt[TCP].flags
-            src_ip = pkt[IP].src
-            dst_ip = pkt[IP].dst
-            dst_port = pkt[TCP].dport
+        events_per_interval = self._analyze_packets_for_stats(packets)
+        detections = []
 
-            if flags == 'S':  # SYN only
-                syn_counter[src_ip] += 1
-                syn_ack_tracker.add((dst_ip, dst_port))
-            elif flags == 'SA':  # SYN-ACK
-                # ลด count ของ IP ที่มี handshake กลับ
-                if (src_ip, pkt[TCP].sport) in syn_ack_tracker:
-                    if syn_counter[src_ip] > 0:
-                        syn_counter[src_ip] -= 1
-                    syn_ack_tracker.discard((src_ip, pkt[TCP].sport))
+        for interval_idx, events in events_per_interval.items():
+            # ตรวจจับ ICMP Flood
+            icmp_threshold = baseline.get('icmp_echo_count_mean', 0) + (baseline.get('icmp_echo_count_std', 0) * self.sensitivity)
+            if events['icmp_echo_count'] > icmp_threshold and icmp_threshold > 0:
+                detections.append(f"High ICMP Echo activity detected (Count: {events['icmp_echo_count']}), normal is ~{baseline.get('icmp_echo_count_mean', 0):.1f}")
 
-            # ตรวจ TCP scan: NULL, XMAS, FIN
-            if flags == 0:
-                scan_flags_counter["NULL"] += 1
-            elif flags == 0x29:  # FIN+PSH+URG
-                scan_flags_counter["XMAS"] += 1
-            elif flags == 0x01:  # FIN
-                scan_flags_counter["FIN"] += 1
+            # ตรวจจับ SYN Flood
+            syn_threshold = baseline.get('syn_count_mean', 0) + (baseline.get('syn_count_std', 0) * self.sensitivity)
+            if events['syn_count'] > syn_threshold and syn_threshold > 0:
+                detections.append(f"High SYN Packet activity detected (Count: {events['syn_count']}), normal is ~{baseline.get('syn_count_mean', 0):.1f}")
+        
+        self._generate_report(detections)
 
-    # === ARP Spoofing Report ===
-    log_lines.append("\n=== ARP Spoofing ===")
-    log_lines.append("ระดับความอันตราย: สูง")
-    log_lines.append("แนวทางป้องกันเบื้องต้น: ตรวจสอบและ alert MAC-IP mapping ที่เปลี่ยนแปลงผิดปกติ")
-    for ip, macs_with_time in ip_mac_map.items():
-        macs = set([m for m, _ in macs_with_time])
-        if len(macs) > 1:
-            log_lines.append(f"[!] IP {ip} maps to multiple MACs:")
-            for mac, t in macs_with_time:
-                log_lines.append(f"    - MAC: {mac} at {t}")
-    for mac, ips_with_time in mac_ip_map.items():
-        ips = set([ip for ip, _ in ips_with_time])
-        if len(ips) > 1:
-            log_lines.append(f"[!] MAC {mac} maps to multiple IPs:")
-            for ip, t in ips_with_time:
-                log_lines.append(f"    - IP: {ip} at {t}")
+    def _generate_report(self, detections):
+        """(Private) สร้างรายงานสรุปผลการตรวจจับ"""
+        output_dir = 'result'
+        os.makedirs(output_dir, exist_ok=True)
+        report_path = os.path.join(output_dir, 'detection_report.txt')
 
-    # === DNS Spoofing Report ===
-    log_lines.append("\n=== DNS Spoofing ===")
-    log_lines.append("ระดับความอันตราย: ปานกลาง")
-    log_lines.append("แนวทางป้องกันเบื้องต้น: หลีกเลี่ยงการใช้ DNS ที่ไม่น่าเชื่อถือ หรือใช้ DNS resolver ที่ควบคุมได้")
-    for qname, rdata_time_map in dns_responses.items():
-        if len(rdata_time_map) > 1:
-            log_lines.append(f"[!] DNS mismatch for {qname}:")
-            for rdata, times in rdata_time_map.items():
-                for t in times:
-                    log_lines.append(f"    - Response: {rdata} at {t}")
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write("Network Anomaly Detection Report\n")
+            f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("="*40 + "\n\n")
 
-    # === DHCP Spoofing Report ===
-    log_lines.append("\n=== DHCP Spoofing ===")
-    log_lines.append("ระดับความอันตราย: สูง")
-    log_lines.append("แนวทางป้องกันเบื้องต้น: จำกัด DHCP responses จาก MAC ที่ไม่รู้จัก")
-    if len(dhcp_servers) > 1:
-        log_lines.append(f"[!] Multiple DHCP servers detected:")
-        for server, times in dhcp_servers.items():
-            for t in times:
-                log_lines.append(f"    - Server: {server} at {t}")
-    else:
-        for server, times in dhcp_servers.items():
-            log_lines.append(f"[*] Single DHCP server: {server} at {times[0]}")
+            if not detections:
+                f.write("No significant anomalies detected based on the current baseline and sensitivity settings.\n")
+                print("\n✅ Analysis complete. No significant anomalies detected.")
+                return
 
-    # === ICMP Flood Report ===
-    log_lines.append("\n=== ICMP Flood ===")
-    log_lines.append("ระดับความอันตราย: ปานกลาง")
-    log_lines.append("แนวทางป้องกันเบื้องต้น: ใช้ rate limiting บน firewall หรือ router")
-    icmp_data = {"IP": [], "Packet Count": []}
-    for src, count in icmp_counter.items():
-        icmp_data["IP"].append(src)
-        icmp_data["Packet Count"].append(count)
-        if count > 100:
-            log_lines.append(f"[!] High ICMP volume from {src}: {count} packets")
+            f.write("The following anomalies were detected:\n")
+            for i, desc in enumerate(detections, 1):
+                f.write(f"  {i}. {desc}\n")
+        
+        print(f"\n✅ Analysis complete. Report saved to '{report_path}'")
 
-    # === SYN Flood Report ===
-    log_lines.append("\n=== SYN Flood ===")
-    log_lines.append("ระดับความอันตราย: สูง")
-    log_lines.append("แนวทางป้องกันเบื้องต้น: ใช้ SYN cookies, จำกัด connection rate")
-    for ip, count in syn_counter.items():
-        if count > 100:
-            log_lines.append(f"[!] Possible SYN flood from {ip}: {count} SYN packets without ACK")
 
-    # === TCP Scan Report ===
-    log_lines.append("\n=== TCP Scan Detection ===")
-    log_lines.append("ระดับความอันตราย: ปานกลางถึงสูง (ขึ้นกับลักษณะ scan)")
-    log_lines.append("แนวทางป้องกันเบื้องต้น: บล็อก IP ที่ scan พอร์ต, ใช้ IDS เช่น Snort/Suricata")
-    for scan_type, count in scan_flags_counter.items():
-        if count > 0:
-            log_lines.append(f"[!] Detected {scan_type} scan: {count} packets")
+def main():
+    """
+    ฟังก์ชันหลักสำหรับจัดการ Command-line arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Suspicious Packet Detector: A tool for network traffic analysis.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    
+    parser.add_argument(
+        'mode', 
+        choices=['learn', 'detect'], 
+        help="The operational mode:\n"
+             "learn  - Analyze a normal pcap file to create a traffic baseline.\n"
+             "detect - Analyze a pcap file to detect anomalies against the baseline."
+    )
+    
+    parser.add_argument(
+        '--pcap', 
+        required=True, 
+        help="Path to the .pcap file to be analyzed."
+    )
+    
+    parser.add_argument(
+        '--config', 
+        default='config.ini', 
+        help="Path to the configuration file (default: config.ini)."
+    )
 
-    # === Console Output ===
-    for line in log_lines:
-        print(line)
+    args = parser.parse_args()
 
-    # === บันทึก log ลงไฟล์ ===
-    log_file = os.path.join(current_dir, 'result/detection_result.txt')
-    # log_file = "detection_result.txt"
-    with open(log_file, "w", encoding="utf-8") as f:
-        for line in log_lines:
-            f.write(line + "\n")
-    print(f"\n✅ ผลการวิเคราะห์ถูกบันทึกลงในไฟล์: {log_file}")
+    try:
+        detector = SuspiciousPacketDetector(config_path=args.config)
+        if args.mode == 'learn':
+            detector.learn(pcap_path=args.pcap)
+        elif args.mode == 'detect':
+            detector.detect(pcap_path=args.pcap)
+    except Exception as e:
+        print(f"[FATAL ERROR] An unexpected error occurred: {e}")
 
-    # === ICMP Chart ===
-    df = pd.DataFrame(icmp_data)
-    if not df.empty:
-        plt.figure(figsize=(10, 5))
-        bars = plt.bar(df["IP"], df["Packet Count"], color='skyblue')
-        plt.xlabel("Source IP")
-        plt.ylabel("Number of ICMP Echo Requests")
-        plt.title("ICMP Packet Count per Source IP")
-        plt.xticks(rotation=45)
-        for bar in bars:
-            height = bar.get_height()
-            plt.text(bar.get_x() + bar.get_width()/2, height + 1, str(height), ha='center', va='bottom')
-        plt.tight_layout()
-        icmp_flood_chart_path = os.path.join(current_dir, 'result/icmp_flood_chart.png')
-        plt.savefig(icmp_flood_chart_path)
-        print(f"📊 ICMP flood chart saved to {icmp_flood_chart_path}")
-        plt.show()
-    else:
-        print("No ICMP Echo Request packets found.")
 
 if __name__ == "__main__":
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    pcap_path = os.path.join(current_dir, 'sample/attack_test.pcap')
-    detect_and_plot(pcap_path)
+    main()

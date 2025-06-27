@@ -1,0 +1,4 @@
+packet_index,attack_type,description
+15,ARP Spoofing,"Malicious ARP reply from attacker"
+120,DNS Spoofing,"Fake DNS response for example.com"
+550,ICMP Flood,"Part of an ICMP flood attack"
